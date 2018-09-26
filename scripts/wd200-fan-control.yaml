@@ -1,0 +1,321 @@
+fan_wd200_increment:
+  alias: Increment time for a wd200 fan control
+  sequence:
+    - service: script.fan_wd200_maybe_on
+      data_template:
+        fan: "{{ fan }}"
+        heat: "{{ heat }}"
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ counter }}"
+        value: >
+          {% if is_state(fan, 'on') or is_state(heat, 'on') %}
+            {{ states(counter) | int + (step | int) }}
+          {% else %}
+            {{ step | int }}
+          {% endif %}
+    - service: input_boolean.turn_off
+      data_template:
+        entity_id: "{{ locked }}"
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_start_countdown
+      data_template:
+        timer: "{{ timer }}"
+        counter: "{{ counter }}"
+        fan: "{{ fan }}"
+
+fan_wd200_maybe_on:
+  alias: Turn on the fan if the heater isn't
+  sequence:
+    - condition: template
+      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+    - service: homeassistant.turn_on
+      data_template:
+        entity_id: "{{ fan }}"
+        
+fan_wd200_decrement:
+  alias: Decrement time for a wd200 fan control
+  sequence:
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ counter }}"
+        value: "{{ [states(counter) | int - (step | int), 0] | max }}"
+    - service: input_boolean.turn_off
+      data_template:
+        entity_id: "{{ locked }}"
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_check_off
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        fan: "{{ fan }}"
+        heat: "{{ heat }}"
+        timer: "{{ timer }}"
+        locked: "{{ locked }}"
+    - service: script.fan_wd200_start_countdown
+      data_template:
+        timer: "{{ timer }}"
+        counter: "{{ counter }}"
+        fan: "{{ fan }}"
+
+fan_wd200_lock_on:
+  alias: Keep the fan on for a wd200 fan control
+  sequence:
+    - service: script.fan_wd200_maybe_on
+      data_template:
+        fan: "{{ fan }}"
+        heat: "{{ heat }}"
+    - service: input_boolean.turn_on
+      data_template:
+        entity_id: "{{ locked }}"
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+
+fan_wd200_full_off:
+  alias: Turn off the fan for a wd200 fan control
+  sequence:
+    - service: input_boolean.turn_off
+      data_template:
+        entity_id: "{{ locked }}"
+    - service: homeassistant.turn_off
+      data_template:
+        entity_id: "{{ fan }}"
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ counter }}"
+        value: 0
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+
+fan_wd200_heat_changed:
+  alias: Update when heat state changes for a wd200 fan control
+  sequence:
+    # Update display
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_maybe_pause
+      data_template:
+        fan: "{{ fan }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_maybe_resume
+      data_template:
+        fan: "{{ fan }}"
+        heat: "{{ heat }}"
+        counter: "{{ counter }}"
+        timer: "{{ timer }}"
+    
+fan_wd200_maybe_pause:
+  alias: Pause the fan if the heat turns on
+  sequence:
+    - condition: template
+      value_template: "{{ is_state(heat, 'on') and is_state(fan, 'on') }}"
+    - service: homeassistant.turn_off
+      data_template:
+        entity_id: "{{ fan }}"
+
+fan_wd200_maybe_resume:
+  alias: Resume the fan if the heat turns off
+  sequence:
+    - condition: template
+      value_template: "{{ is_state(heat, 'off') and is_state(fan, 'off') }}"
+    - condition: template
+      value_template: "{{ states(counter) | int > 0 }}"
+    - service: homeassistant.turn_on
+      data_template:
+        entity_id: "{{ fan }}"
+    - delay: "00:00:03"
+    - service: script.fan_wd200_start_countdown
+      data_template:
+        timer: "{{ timer }}"
+        counter: "{{ counter }}"
+        fan: "{{ fan }}"
+
+fan_wd200_start_countdown:
+  alias: Count down time on a fan while displaying status on a wd200
+  sequence:
+    # Must be on and have time left.
+    - condition: template
+      value_template: "{{ is_state(fan, 'on') }}"
+    - condition: template
+      value_template: "{{ states(counter) | int > 0 }}"
+    - service: timer.start
+      data_template:
+        entity_id: "{{ timer }}"
+        duration: "00:01:00"
+
+fan_wd200_count_down:
+  alias: Decrement a fan counter and proceed
+  sequence:
+    # Stop if locked or heat is on
+    - condition: template
+      value_template: "{{ is_state(locked, 'off') }}"
+    - condition: template
+      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+    # Decrement the counter
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ counter }}"
+        value: "{{ [states(counter) | int - 1, 0] | max }}"
+    # Update the display
+    - service: script.fan_wd200_display
+      data_template:
+        node: "{{ node }}"
+        counter: "{{ counter }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+    # Either keep counting down or turn things off
+    - service: script.fan_wd200_start_countdown
+      data_template:
+        fan: "{{ fan }}"
+        counter: "{{ counter }}"
+        timer: "{{ timer }}"
+    - service: script.fan_wd200_check_off
+      data_template:
+        fan: "{{ fan }}"
+        counter: "{{ counter }}"
+        node: "{{ node }}"
+        locked: "{{ locked }}"
+        heat: "{{ heat }}"
+
+fan_wd200_check_off:
+  alias: Turn off the fan and wd200 display when ready
+  sequence:
+    # Must be off or have not time left.
+    - condition: template
+      value_template: "{{ is_state(locked, 'off') }}"
+    - condition: template
+      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+    - condition: or
+      conditions:
+      - condition: template
+        value_template: "{{ is_state(fan, 'off') }}"
+      - condition: template
+        value_template: "{{ states(counter) | int <= 0 }}"
+    # Turn off
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ counter }}"
+        value: 0
+    - service: homeassistant.turn_off
+      data_template:
+        entity_id: "{{ fan }}"
+    # Update display to off
+    - service: script.fan_wd200_display
+      data_template:
+        counter: "{{ counter }}"
+        node: "{{ node }}"
+        locked: "{{ locked }}"
+
+fan_wd200_display:
+  alias: Update a wd200 display according to a fan counter
+  sequence:
+    # Status mode
+    - service: script.ws200_status_mode
+      data_template:
+        node_id: "{{ node }}"
+    # LEDs
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 1
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 2
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 3
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 4
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 5
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 6
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    - service: script.fan_wd200_led_color
+      data_template:
+        node: "{{ node }}"
+        led: 7
+        counter: "{{ counter }}"
+        heat: "{{ heat }}"
+    # Blink for count down
+    - service: script.ws200_blink_frequency
+      data_template:
+        node_id: "{{ node }}"
+        frequency: 5
+    - service: script.ws200_led_blink_bitmask
+      data_template:
+        node_id: "{{ node }}"
+        bitmask: >
+          {% if is_state(locked, 'on') or (not heat is none and is_state(heat, 'on')) %}
+            0
+          {% else %}
+            {{ 2 ** ([((states(counter) | int - 1) / 5) | int, 7] | min) }}
+          {% endif %}
+    # Locked indicator
+    - condition: template
+      value_template: "{{ is_state(locked, 'on') }}"
+    - service: script.ws200_led_color
+      data_template:
+        node_id: "{{ node }}"
+        led: 1
+        color: "Magenta"
+
+
+fan_wd200_led_color:
+  alias: Set a single LED color according to a fan counter
+  sequence:
+    - service: script.ws200_led_color
+      data_template:
+        node_id: "{{ node }}"
+        led: "{{ led }}"
+        color: >
+          {% if (states(counter) | int > ((led | int - 1) * 5)) %}
+            {% if heat is none or is_state(heat, 'off') %}
+              Blue
+            {% else %}
+              Red
+            {% endif %}
+          {% else %}
+            Off
+          {% endif %}
