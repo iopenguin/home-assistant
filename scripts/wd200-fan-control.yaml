@@ -1,109 +1,125 @@
+# To use this functionality, define custom attributes on your Homeseer WD200+
+# wall dimmer's zwave entity:
+#
+# fan_entity: The entity ID of the device to turn on and off
+# timer_entity: The entity ID of a timer instance to use for this control
+# counter_entity: The entity ID of an input_number instance to use for this
+#                 control
+# locked_entity: The entity ID of an input_boolean instance to use for this
+#                control
+#
+# In addition, the following optional attributes may be specified:
+#
+# heat_entity: The entity ID of the device to monitor for mutually exclusive
+#              heater use. If not specified, this functionality is disabled.
+# led_interval: The number of minutes that each LED on the dimmer should
+#               indicate. If not specified, the default is 5 minutes.
+
 fan_wd200_increment:
   alias: Increment time for a wd200 fan control
   sequence:
     - service: script.fan_wd200_maybe_on
       data_template:
-        fan: "{{ fan }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: input_number.set_value
       data_template:
-        entity_id: "{{ counter }}"
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
         value: >
-          {% if is_state(fan, 'on') or is_state(heat, 'on') %}
-            {{ states(counter) | int + (step | int) }}
+          {% if is_state(state_attr(control, 'fan_entity'), 'on') or (is_state(state_attr(control, 'heat_entity')|default('',true), 'on')) %}
+            {{ states(state_attr(control, 'counter_entity')) | int + (step | int) }}
           {% else %}
             {{ step | int }}
           {% endif %}
     - service: input_boolean.turn_off
       data_template:
-        entity_id: "{{ locked }}"
+        entity_id: "{{ state_attr(control, 'locked_entity') }}"
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_start_countdown
       data_template:
-        timer: "{{ timer }}"
-        counter: "{{ counter }}"
-        fan: "{{ fan }}"
+        control: "{{ control }}"
 
 fan_wd200_maybe_on:
   alias: Turn on the fan if the heater isn't
   sequence:
     - condition: template
-      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+      value_template: "{{ not is_state(state_attr(control, 'heat_entity')|default('',true), 'on') }}"
     - service: homeassistant.turn_on
       data_template:
-        entity_id: "{{ fan }}"
+        entity_id: "{{ state_attr(control, 'fan_entity') }}"
         
 fan_wd200_decrement:
   alias: Decrement time for a wd200 fan control
   sequence:
     - service: input_number.set_value
       data_template:
-        entity_id: "{{ counter }}"
-        value: "{{ [states(counter) | int - (step | int), 0] | max }}"
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
+        value: "{{ [states(state_attr(control, 'counter_entity')) | int - (step | int), 0] | max }}"
     - service: input_boolean.turn_off
       data_template:
-        entity_id: "{{ locked }}"
+        entity_id: "{{ state_attr(control, 'locked_entity') }}"
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_check_off
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        fan: "{{ fan }}"
-        heat: "{{ heat }}"
-        timer: "{{ timer }}"
-        locked: "{{ locked }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_start_countdown
       data_template:
-        timer: "{{ timer }}"
-        counter: "{{ counter }}"
-        fan: "{{ fan }}"
+        control: "{{ control }}"
 
 fan_wd200_lock_on:
   alias: Keep the fan on for a wd200 fan control
   sequence:
     - service: script.fan_wd200_maybe_on
       data_template:
-        fan: "{{ fan }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: input_boolean.turn_on
       data_template:
-        entity_id: "{{ locked }}"
+        entity_id: "{{ state_attr(control, 'locked_entity') }}"
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
 
 fan_wd200_full_off:
   alias: Turn off the fan for a wd200 fan control
   sequence:
     - service: input_boolean.turn_off
       data_template:
-        entity_id: "{{ locked }}"
+        entity_id: "{{ state_attr(control, 'locked_entity') }}"
     - service: homeassistant.turn_off
       data_template:
-        entity_id: "{{ fan }}"
+        entity_id: "{{ state_attr(control, 'fan_entity') }}"
     - service: input_number.set_value
       data_template:
-        entity_id: "{{ counter }}"
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
         value: 0
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
+
+fan_wd200_min_time_left:
+  alias: "Make wd200 fan control on for at least a given duration if it isn't already"
+  sequence:
+    - service: script.fan_wd200_maybe_on
+      data_template:
+        control: "{{ control }}"
+    - service: input_number.set_value
+      data_template:
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
+        value: >
+          {% if is_state(state_attr(control, 'fan_entity'), 'on') or (is_state(state_attr(control, 'heat_entity')|default('',true), 'on')) %}
+            {{ [states(state_attr(control, 'counter_entity')) | int, min | int] | max }}
+          {% else %}
+            {{ min | int }}
+          {% endif %}
+    - service: script.fan_wd200_display
+      data_template:
+        control: "{{ control }}"
+    - service: script.fan_wd200_start_countdown
+      data_template:
+        control: "{{ control }}"
 
 fan_wd200_heat_changed:
   alias: Update when heat state changes for a wd200 fan control
@@ -111,58 +127,49 @@ fan_wd200_heat_changed:
     # Update display
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_maybe_pause
       data_template:
-        fan: "{{ fan }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_maybe_resume
       data_template:
-        fan: "{{ fan }}"
-        heat: "{{ heat }}"
-        counter: "{{ counter }}"
-        timer: "{{ timer }}"
-    
+        control: "{{ control }}"
+
 fan_wd200_maybe_pause:
   alias: Pause the fan if the heat turns on
   sequence:
     - condition: template
-      value_template: "{{ is_state(heat, 'on') and is_state(fan, 'on') }}"
+      value_template: "{{ is_state(state_attr(control, 'heat_entity')|default(''), 'on') and is_state(state_attr(control, 'fan_entity'), 'on') }}"
     - service: homeassistant.turn_off
       data_template:
-        entity_id: "{{ fan }}"
+        entity_id: "{{ state_attr(control, 'fan_entity') }}"
 
 fan_wd200_maybe_resume:
   alias: Resume the fan if the heat turns off
   sequence:
     - condition: template
-      value_template: "{{ is_state(heat, 'off') and is_state(fan, 'off') }}"
+      value_template: "{{ is_state(state_attr(control, 'heat_entity')|default(''), 'off') and is_state(state_attr(control, 'fan_entity'), 'off') }}"
     - condition: template
-      value_template: "{{ states(counter) | int > 0 }}"
+      value_template: "{{ states(state_attr(control, 'counter_entity')) | int > 0 }}"
     - service: homeassistant.turn_on
       data_template:
-        entity_id: "{{ fan }}"
+        entity_id: "{{ state_attr(control, 'fan_entity') }}"
     - delay: "00:00:03"
     - service: script.fan_wd200_start_countdown
       data_template:
-        timer: "{{ timer }}"
-        counter: "{{ counter }}"
-        fan: "{{ fan }}"
+        control: "{{ control }}"
 
 fan_wd200_start_countdown:
   alias: Count down time on a fan while displaying status on a wd200
   sequence:
     # Must be on and have time left.
     - condition: template
-      value_template: "{{ is_state(fan, 'on') }}"
+      value_template: "{{ is_state(state_attr(control, 'fan_entity'), 'on') }}"
     - condition: template
-      value_template: "{{ states(counter) | int > 0 }}"
+      value_template: "{{ states(state_attr(control, 'counter_entity')) | int > 0 }}"
     - service: timer.start
       data_template:
-        entity_id: "{{ timer }}"
+        entity_id: "{{ state_attr(control, 'timer_entity') }}"
         duration: "00:01:00"
 
 fan_wd200_count_down:
@@ -170,63 +177,52 @@ fan_wd200_count_down:
   sequence:
     # Stop if locked or heat is on
     - condition: template
-      value_template: "{{ is_state(locked, 'off') }}"
+      value_template: "{{ is_state(state_attr(control, 'locked_entity'), 'off') }}"
     - condition: template
-      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+      value_template: "{{ not is_state(state_attr(control, 'heat_entity')|default('',true), 'on') }}"
     # Decrement the counter
     - service: input_number.set_value
       data_template:
-        entity_id: "{{ counter }}"
-        value: "{{ [states(counter) | int - 1, 0] | max }}"
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
+        value: "{{ [states(state_attr(control, 'counter_entity')) | int - 1, 0] | max }}"
     # Update the display
     - service: script.fan_wd200_display
       data_template:
-        node: "{{ node }}"
-        counter: "{{ counter }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
     # Either keep counting down or turn things off
     - service: script.fan_wd200_start_countdown
       data_template:
-        fan: "{{ fan }}"
-        counter: "{{ counter }}"
-        timer: "{{ timer }}"
+        control: "{{ control }}"
     - service: script.fan_wd200_check_off
       data_template:
-        fan: "{{ fan }}"
-        counter: "{{ counter }}"
-        node: "{{ node }}"
-        locked: "{{ locked }}"
-        heat: "{{ heat }}"
+        control: "{{ control }}"
 
 fan_wd200_check_off:
   alias: Turn off the fan and wd200 display when ready
   sequence:
     # Must be off or have not time left.
     - condition: template
-      value_template: "{{ is_state(locked, 'off') }}"
+      value_template: "{{ is_state(state_attr(control, 'locked_entity'), 'off') }}"
     - condition: template
-      value_template: "{{ heat is none or is_state(heat, 'off') }}"
+      value_template: "{{ not is_state(state_attr(control, 'heat_entity')|default('',true), 'on') }}"
     - condition: or
       conditions:
       - condition: template
-        value_template: "{{ is_state(fan, 'off') }}"
+        value_template: "{{ is_state(state_attr(control, 'fan_entity'), 'off') }}"
       - condition: template
-        value_template: "{{ states(counter) | int <= 0 }}"
+        value_template: "{{ states(state_attr(control, 'counter_entity')) | int <= 0 }}"
     # Turn off
     - service: input_number.set_value
       data_template:
-        entity_id: "{{ counter }}"
+        entity_id: "{{ state_attr(control, 'counter_entity') }}"
         value: 0
     - service: homeassistant.turn_off
       data_template:
-        entity_id: "{{ fan }}"
+        entity_id: "{{ state_attr(control, 'fan_entity') }}"
     # Update display to off
     - service: script.fan_wd200_display
       data_template:
-        counter: "{{ counter }}"
-        node: "{{ node }}"
-        locked: "{{ locked }}"
+        control: "{{ control }}"
 
 fan_wd200_display:
   alias: Update a wd200 display according to a fan counter
@@ -234,87 +230,72 @@ fan_wd200_display:
     # Status mode
     - service: script.ws200_status_mode
       data_template:
-        node_id: "{{ node }}"
+        node_id: "{{ state_attr(control, 'node_id') }}"
     # LEDs
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 1
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 2
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 3
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 4
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 5
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 6
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     - service: script.fan_wd200_led_color
       data_template:
-        node: "{{ node }}"
+        control: "{{ control }}"
         led: 7
-        counter: "{{ counter }}"
-        heat: "{{ heat }}"
     # Blink for count down
     - service: script.ws200_blink_frequency
       data_template:
-        node_id: "{{ node }}"
+        node_id: "{{ state_attr(control, 'node_id') }}"
         frequency: 5
     - service: script.ws200_led_blink_bitmask
       data_template:
-        node_id: "{{ node }}"
+        node_id: "{{ state_attr(control, 'node_id') }}"
         bitmask: >
-          {% if is_state(locked, 'on') or (not heat is none and is_state(heat, 'on')) %}
+          {% if is_state(state_attr(control, 'locked_entity'), 'on') or (is_state(state_attr(control, 'heat_entity')|default('',true), 'on')) %}
             0
           {% else %}
-            {{ 2 ** ([((states(counter) | int - 1) / 5) | int, 7] | min) }}
+            {{ 2 ** ([((states(state_attr(control, 'counter_entity')) | int - 1) / (state_attr(control, 'led_interval')|default(5,true)|int)) | int, 7] | min) }}
           {% endif %}
     # Locked indicator
     - condition: template
-      value_template: "{{ is_state(locked, 'on') }}"
+      value_template: "{{ is_state(state_attr(control, 'locked_entity'), 'on') }}"
     - service: script.ws200_led_color
       data_template:
-        node_id: "{{ node }}"
+        node_id: "{{ state_attr(control, 'node_id') }}"
         led: 1
         color: "Magenta"
-
 
 fan_wd200_led_color:
   alias: Set a single LED color according to a fan counter
   sequence:
     - service: script.ws200_led_color
       data_template:
-        node_id: "{{ node }}"
+        node_id: "{{ state_attr(control, 'node_id') }}"
         led: "{{ led }}"
         color: >
-          {% if (states(counter) | int > ((led | int - 1) * 5)) %}
-            {% if heat is none or is_state(heat, 'off') %}
-              Blue
-            {% else %}
+          {% if (states(state_attr(control, 'counter_entity')) | int > ((led | int - 1) * (state_attr(control, 'led_interval')|default(5,true)|int))) %}
+            {% if is_state(state_attr(control, 'heat_entity')|default('',true), 'on') %}
               Red
+            {% else %}
+              Blue
             {% endif %}
           {% else %}
             Off
